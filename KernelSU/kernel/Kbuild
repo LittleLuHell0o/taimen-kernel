@@ -1,0 +1,69 @@
+kernelsu-objs := ksu.o
+kernelsu-objs += allowlist.o
+kernelsu-objs += app_profile.o
+kernelsu-objs += dynamic_manager.o
+kernelsu-objs += apk_sign.o
+kernelsu-objs += sucompat.o
+kernelsu-objs += syscall_hook_manager.o
+kernelsu-objs += throne_tracker.o
+kernelsu-objs += pkg_observer.o
+kernelsu-objs += setuid_hook.o
+kernelsu-objs += kernel_umount.o
+kernelsu-objs += supercalls.o
+kernelsu-objs += feature.o
+kernelsu-objs += ksud.o
+kernelsu-objs += embed_ksud.o
+kernelsu-objs += seccomp_cache.o
+kernelsu-objs += file_wrapper.o
+kernelsu-objs += util.o
+kernelsu-objs += throne_comm.o
+kernelsu-objs += sulog.o
+kernelsu-objs += susfs_ksu.o
+
+ifeq ($(CONFIG_KSU_MANUAL_SU), y)
+ccflags-y += -DCONFIG_KSU_MANUAL_SU
+kernelsu-objs += manual_su.o
+endif
+
+kernelsu-objs += selinux/selinux.o
+kernelsu-objs += selinux/sepolicy.o
+kernelsu-objs += selinux/rules.o
+
+obj-$(CONFIG_KSU) += kernelsu.o
+obj-$(CONFIG_KPM) += kpm/
+
+ccflags-y += -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include
+ccflags-y += -I$(objtree)/security/selinux -include $(srctree)/include/uapi/asm-generic/errno.h
+ccflags-y += -include $(srctree)/drivers/kernelsu/ksu_krw.h
+
+# --- static version (no network fetch; WSL has no GitHub access) ---
+KSU_VERSION := 40281
+KSU_VERSION_FULL := v4.1.0-SukiSU-Ultra-unknown@unknown
+ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
+ccflags-y += -DKSU_VERSION_FULL=\"$(KSU_VERSION_FULL)\"
+
+ifeq ($(CONFIG_KSU_MANUAL_HOOK), y)
+ccflags-y += -DKSU_MANUAL_HOOK
+else
+ccflags-y += -DKSU_KPROBES_HOOK
+ccflags-y += -DKSU_TP_HOOK
+endif
+
+# --- 4.4 (non-GKI) 兼容补丁 ---
+# 4.4: task_work_add(task, work, bool notify)；新内核用 TWA_RESUME 枚举
+ccflags-y += -DTWA_RESUME=true
+# 4.4 无 clone3 系统调用，用不可能匹配的编号占位
+ccflags-y += -D__NR_clone3=-1
+
+# Check new vfs_getattr()
+ifeq ($(shell grep -A1 "^int vfs_getattr" $(srctree)/fs/stat.c | grep -q "query_flags" ; echo $$?),0)
+ccflags-y += -DKSU_HAS_NEW_VFS_GETATTR
+endif
+
+# Function proc_ops check
+ifeq ($(shell grep -q "struct proc_ops " $(srctree)/include/linux/proc_fs.h; echo $$?),0)
+ccflags-y += -DKSU_COMPAT_HAS_PROC_OPS
+endif
+
+ccflags-y += -Wno-strict-prototypes -Wno-int-conversion -Wno-gcc-compat -Wno-missing-prototypes
+ccflags-y += -Wno-declaration-after-statement -Wno-unused-function -Wno-unused-variable
